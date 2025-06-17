@@ -1,0 +1,431 @@
+import { useState, useEffect, useRef } from 'react';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
+import ACRCloudService from '../services/ACRCloudService';
+import { ACRCloudConfig } from '../config/acrcloud';
+import FirebaseService from '../services/FirebaseService';
+import { Track } from '../models/track';
+import { Setlist } from '../models/setlist';
+
+const useAudioIdentification = () => {
+  const [recording, setRecording] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isIdentifying, setIsIdentifying] = useState(false);
+  const [matchResults, setMatchResults] = useState([]);
+  const [error, setError] = useState(null);
+  const [currentSetlistId, setCurrentSetlistId] = useState(null);
+  
+  const acrService = useRef(new ACRCloudService(ACRCloudConfig)).current;
+  const recordingInterval = useRef(null);
+  const userId = useRef('user_' + Date.now()).current; // Temporary user ID
+
+  useEffect(() => {
+    return () => {
+      if (recording) {
+        recording.stopAndUnloadAsync();
+      }
+      if (recordingInterval.current) {
+        clearInterval(recordingInterval.current);
+      }
+    };
+  }, [recording]);
+
+  const startRecording = async () => {
+    try {
+      console.log('[useAudioIdentification] Starting recording process...');
+      setError(null);
+      setMatchResults([]); // Clear previous matches when starting new session
+      
+      // Create a new setlist for this recording session
+      try {
+        const setlist = new Setlist({
+          name: `Recording Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+          userId: userId,
+          venue: null,
+          date: new Date(),
+          description: 'Live music identification session',
+        });
+        
+        const setlistId = await FirebaseService.createSetlist(setlist.toFirestore());
+        console.log('[useAudioIdentification] Created setlist with ID:', setlistId);
+        setCurrentSetlistId(setlistId);
+      } catch (err) {
+        console.error('[useAudioIdentification] Failed to create setlist:', err);
+        setError('Failed to create setlist: ' + err.message);
+        return;
+      }
+      
+      // Ensure any existing recording is properly stopped
+      if (recording) {
+        console.log('[useAudioIdentification] Cleaning up existing recording...');
+        try {
+          await recording.stopAndUnloadAsync();
+        } catch (err) {
+          console.log('[useAudioIdentification] Cleanup error:', err.message);
+        }
+        setRecording(null);
+      }
+      
+      // Request permissions
+      console.log('[useAudioIdentification] Requesting microphone permissions...');
+      const permission = await Audio.requestPermissionsAsync();
+      console.log('[useAudioIdentification] Permission status:', permission.status);
+      
+      if (permission.status !== 'granted') {
+        console.error('[useAudioIdentification] Microphone permission denied');
+        setError('Permission to access microphone denied');
+        return;
+      }
+
+      // Configure audio for optimal quality
+      console.log('[useAudioIdentification] Configuring audio mode...');
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
+        shouldDuckAndroid: false, // Don't lower other app's audio
+        playThroughEarpieceAndroid: false,
+      });
+
+      // Start recording with high quality settings
+      console.log('[useAudioIdentification] Creating audio recording...');
+      const recordingOptions = {
+        android: {
+          extension: '.m4a',
+          outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+          audioEncoder: Audio.AndroidAudioEncoder.AAC, // Standard AAC encoder
+          sampleRate: 44100, // ACRCloud recommended sample rate
+          numberOfChannels: 2, // Stereo for better recognition
+          bitRate: 256000, // High bitrate (above 128 kbps minimum)
+        },
+        ios: {
+          extension: '.m4a',
+          audioQuality: Audio.IOSAudioQuality.MAX, // Maximum quality
+          outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
+          sampleRate: 44100, // ACRCloud recommended sample rate
+          numberOfChannels: 2, // Stereo
+          bitRate: 256000, // High bitrate
+          linearPCMBitDepth: 16,
+          linearPCMIsBigEndian: false,
+          linearPCMIsFloat: false,
+        },
+        web: {
+          mimeType: 'audio/webm',
+          bitsPerSecond: 256000,
+        }
+      };
+      
+      const { recording } = await Audio.Recording.createAsync(recordingOptions);
+      
+      console.log('[useAudioIdentification] Recording created successfully');
+      setRecording(recording);
+      setIsRecording(true);
+
+      // Start chunked recording and identification
+      console.log('[useAudioIdentification] Starting chunked identification...');
+      startChunkedIdentification(recording, setlistId);
+      
+    } catch (err) {
+      console.error('[useAudioIdentification] Failed to start recording:', err);
+      console.error('[useAudioIdentification] Error stack:', err.stack);
+      setError('Failed to start recording: ' + err.message);
+    }
+  };
+
+  const startChunkedIdentification = (initialRecording, setlistId) => {
+    let currentRecording = initialRecording;
+    let shouldContinue = true;
+    let chunkNumber = 0;
+    
+    console.log('[useAudioIdentification] Starting continuous recording and identification...');
+    
+    const recordAndIdentify = async () => {
+      while (shouldContinue && recordingInterval.current) {
+        chunkNumber++;
+        console.log(`[useAudioIdentification] Starting chunk #${chunkNumber}...`);
+        
+        try {
+          // Wait 10 seconds to record
+          console.log('[useAudioIdentification] Recording for 10 seconds...');
+          await new Promise(resolve => setTimeout(resolve, 10000));
+          
+          // Check if we should still continue
+          if (!shouldContinue || !recordingInterval.current) {
+            console.log('[useAudioIdentification] Stopping continuous recording...');
+            break;
+          }
+          
+          // Stop current recording
+          console.log('[useAudioIdentification] Stopping current recording...');
+          await currentRecording.stopAndUnloadAsync();
+          const uri = currentRecording.getURI();
+          console.log('[useAudioIdentification] Recording URI:', uri);
+          
+          // Process the recording
+          if (uri) {
+            console.log('[useAudioIdentification] Identifying audio...');
+            setIsIdentifying(true);
+            
+            // Don't await this - let it run in background
+            identifyAudio(uri, setlistId).then(() => {
+              console.log('[useAudioIdentification] Identification completed');
+            }).catch(err => {
+              console.error('[useAudioIdentification] Identification error:', err);
+            });
+          }
+          
+          // Wait 20 seconds before starting new recording
+          console.log('[useAudioIdentification] Waiting 20 seconds before next recording...');
+          await new Promise(resolve => setTimeout(resolve, 20000));
+          
+          // Check again if we should continue after the wait
+          if (!shouldContinue || !recordingInterval.current) {
+            console.log('[useAudioIdentification] Stopping continuous recording...');
+            break;
+          }
+          
+          // Start new recording after the wait
+          console.log('[useAudioIdentification] Starting new recording after wait...');
+          const recordingOptions = {
+            android: {
+              extension: '.m4a',
+              outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+              audioEncoder: Audio.AndroidAudioEncoder.AAC,
+              sampleRate: 44100,
+              numberOfChannels: 2,
+              bitRate: 256000,
+            },
+            ios: {
+              extension: '.m4a',
+              audioQuality: Audio.IOSAudioQuality.MAX,
+              outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
+              sampleRate: 44100,
+              numberOfChannels: 2,
+              bitRate: 256000,
+              linearPCMBitDepth: 16,
+              linearPCMIsBigEndian: false,
+              linearPCMIsFloat: false,
+            },
+            web: {
+              mimeType: 'audio/webm',
+              bitsPerSecond: 256000,
+            }
+          };
+          
+          const { recording: newRecording } = await Audio.Recording.createAsync(recordingOptions);
+          setRecording(newRecording);
+          currentRecording = newRecording;
+          console.log('[useAudioIdentification] New recording started');
+          
+          console.log(`[useAudioIdentification] Chunk #${chunkNumber} processed, continuing...`);
+          
+        } catch (err) {
+          console.error('[useAudioIdentification] Error in recording loop:', err);
+          setError('Error in recording: ' + err.message);
+          shouldContinue = false;
+        }
+      }
+      
+      console.log('[useAudioIdentification] Recording loop ended');
+    };
+    
+    // Store a reference to stop the loop
+    recordingInterval.current = { stop: () => { shouldContinue = false; } };
+    
+    // Start the continuous recording
+    recordAndIdentify();
+  };
+
+  const identifyAudio = async (uri, setlistId) => {
+    try {
+      console.log('[useAudioIdentification] Starting audio identification for URI:', uri);
+      
+      // Get file info
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      console.log('[useAudioIdentification] File info:', fileInfo);
+      
+      // Create a file object for FormData
+      const audioFile = {
+        uri: uri,
+        type: 'audio/mp4',
+        name: 'recording.m4a'
+      };
+      
+      // Send file directly to ACRCloud
+      console.log('[useAudioIdentification] Sending to ACRCloud for identification...');
+      const result = await acrService.identifyFile(audioFile, fileInfo.size);
+      console.log('[useAudioIdentification] ACRCloud response:', JSON.stringify(result, null, 2));
+      
+      if (result.status && result.status.msg === 'Success' && result.metadata) {
+        console.log('[useAudioIdentification] Match found! Metadata:', JSON.stringify(result.metadata, null, 2));
+        
+        const music = result.metadata.music?.[0];
+        if (music && music.score >= 35) {
+          // Use functional update to check for duplicates with current state
+          setMatchResults(prev => {
+            // Check if this song is already in the list
+            const existingIndex = prev.findIndex(match => {
+              const existingMusic = match.metadata.music?.[0];
+              return existingMusic && 
+                     existingMusic.title === music.title && 
+                     existingMusic.artists?.[0]?.name === music.artists?.[0]?.name;
+            });
+            
+            if (existingIndex === -1) {
+              // Add to matches list with timestamp
+              const newMatch = {
+                ...result,
+                timestamp: new Date().toISOString(),
+                id: Date.now() // Simple ID for key prop
+              };
+              console.log('[useAudioIdentification] New song added to list, continuing to record...');
+              
+              // Add track to Firebase setlist
+              if (setlistId) {
+                console.log('[useAudioIdentification] Adding track to Firebase setlist:', setlistId);
+                addTrackToFirebase(result, setlistId);
+              } else {
+                console.warn('[useAudioIdentification] No setlistId available for adding track');
+              }
+              
+              return [...prev, newMatch];
+            } else {
+              // Check if new match has higher confidence
+              const existingScore = prev[existingIndex].metadata.music?.[0]?.score || 0;
+              const newScore = music.score || 0;
+              
+              if (newScore > existingScore) {
+                // Replace with higher confidence match
+                const updatedMatches = [...prev];
+                updatedMatches[existingIndex] = {
+                  ...result,
+                  timestamp: new Date().toISOString(),
+                  id: prev[existingIndex].id // Keep same ID for React key
+                };
+                console.log(`[useAudioIdentification] Updated song with higher confidence: ${existingScore}% -> ${newScore}%`);
+                
+                // Update track in Firebase with higher confidence
+                if (setlistId) {
+                  updateTrackInFirebase(result, setlistId, music.title, music.artists?.[0]?.name);
+                }
+                
+                return updatedMatches;
+              } else {
+                console.log(`[useAudioIdentification] Song already in list with equal/higher confidence (existing: ${existingScore}%, new: ${newScore}%)`);
+                return prev; // Return unchanged array
+              }
+            }
+          });
+        } else if (music && music.score < 35) {
+          console.log(`[useAudioIdentification] Match found but confidence too low: ${music.score}% (minimum: 35%)`);  
+        }
+      } else {
+        console.log('[useAudioIdentification] No match found in this chunk');
+        console.log('[useAudioIdentification] Status:', result.status);
+      }
+      
+      setIsIdentifying(false);
+    } catch (err) {
+      console.error('[useAudioIdentification] Identification error:', err);
+      console.error('[useAudioIdentification] Identification error stack:', err.stack);
+      setError('Failed to identify audio: ' + err.message);
+      setIsIdentifying(false);
+    }
+  };
+
+  const stopRecording = async () => {
+    try {
+      console.log('[useAudioIdentification] Stopping recording...');
+      
+      if (recordingInterval.current && recordingInterval.current.stop) {
+        console.log('[useAudioIdentification] Stopping recording loop...');
+        recordingInterval.current.stop();
+        recordingInterval.current = null;
+      }
+
+      // Give the loop a moment to stop
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      if (recording) {
+        console.log('[useAudioIdentification] Stopping and unloading current recording...');
+        try {
+          const recordingStatus = await recording.getStatusAsync();
+          console.log('[useAudioIdentification] Recording status:', recordingStatus);
+          
+          if (recordingStatus.isRecording) {
+            await recording.stopAndUnloadAsync();
+          }
+        } catch (err) {
+          console.log('[useAudioIdentification] Recording cleanup error:', err.message);
+        }
+        setRecording(null);
+        console.log('[useAudioIdentification] Recording stopped successfully');
+      }
+      
+      setIsRecording(false);
+      setIsIdentifying(false);
+      console.log('[useAudioIdentification] Recording process completed');
+    } catch (err) {
+      console.error('[useAudioIdentification] Failed to stop recording:', err);
+      console.error('[useAudioIdentification] Stop recording error stack:', err.stack);
+      setError('Failed to stop recording: ' + err.message);
+    }
+  };
+
+  // Helper function to add track to Firebase
+  const addTrackToFirebase = async (matchData, setlistId) => {
+    try {
+      const track = Track.fromACRCloudMatch(matchData, userId);
+      const trackData = track.toFirestore();
+      
+      const trackId = await FirebaseService.addTrack(setlistId, trackData);
+      console.log('[useAudioIdentification] Track added to Firebase with ID:', trackId);
+    } catch (err) {
+      console.error('[useAudioIdentification] Failed to add track to Firebase:', err);
+    }
+  };
+
+  // Helper function to update track in Firebase
+  const updateTrackInFirebase = async (matchData, setlistId, title, artist) => {
+    try {
+      // Get all tracks to find the one to update
+      const tracks = await FirebaseService.getSetlistTracks(setlistId);
+      const trackToUpdate = tracks.find(track => 
+        track.title?.toLowerCase() === title?.toLowerCase() && 
+        track.artist?.toLowerCase() === artist?.toLowerCase()
+      );
+      
+      if (trackToUpdate) {
+        const music = matchData.metadata.music?.[0];
+        await FirebaseService.updateTrack(setlistId, trackToUpdate.id, {
+          score: music.score,
+          acrCloudData: music,
+          identifiedAt: new Date().toISOString(),
+        });
+        console.log('[useAudioIdentification] Track updated in Firebase');
+      }
+    } catch (err) {
+      console.error('[useAudioIdentification] Failed to update track in Firebase:', err);
+    }
+  };
+
+  const clearError = () => setError(null);
+  const clearMatches = () => setMatchResults([]);
+
+  return {
+    // State
+    isRecording,
+    isIdentifying,
+    matchResults,
+    error,
+    currentSetlistId,
+    
+    // Actions
+    startRecording,
+    stopRecording,
+    clearError,
+    clearMatches,
+  };
+};
+
+export default useAudioIdentification;
