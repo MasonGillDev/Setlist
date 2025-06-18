@@ -1,13 +1,16 @@
+import React, { useState } from "react";
 import {
-  ActivityIndicator,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
 } from "react-native";
 import useAudioIdentification from "../hooks/useAudioIdentification";
+import SetNameModal from "../components/SetNameModal";
+import MatchResultsList from "../components/MatchResultsList";
+import RecordingStatus from "../components/RecordingStatus";
+import ErrorMessage from "../components/ErrorMessage";
 
 const HomePage = () => {
   const {
@@ -19,54 +22,19 @@ const HomePage = () => {
     stopRecording,
   } = useAudioIdentification();
 
-  const renderMatchResults = () => {
-    if (matchResults.length === 0) return null;
+  const [showModal, setShowModal] = useState(false);
 
-    return (
-      <View style={styles.resultsSection}>
-        <Text style={styles.sectionTitle}>
-          Identified Songs ({matchResults.length})
-        </Text>
-        {matchResults.map((match, index) => {
-          const music = match.metadata.music?.[0];
-          if (!music) return null;
+  const handleStartRecording = () => {
+    setShowModal(true);
+  };
 
-          return (
-            <View key={match.id} style={styles.resultContainer}>
-              <View style={styles.resultHeader}>
-                <Text style={styles.resultNumber}>#{index + 1}</Text>
-                <View style={styles.resultHeaderRight}>
-                  <Text style={styles.confidenceScore}>
-                    {music.score}% match
-                  </Text>
-                  <Text style={styles.resultTime}>
-                    {new Date(match.timestamp).toLocaleTimeString()}
-                  </Text>
-                </View>
-              </View>
-              <Text style={styles.resultText}>
-                <Text style={styles.resultLabel}>Title: </Text>
-                {music.title || "Unknown"}
-              </Text>
-              <Text style={styles.resultText}>
-                <Text style={styles.resultLabel}>Artist: </Text>
-                {music.artists?.map((a) => a.name).join(", ") || "Unknown"}
-              </Text>
-              <Text style={styles.resultText}>
-                <Text style={styles.resultLabel}>Album: </Text>
-                {music.album?.name || "Unknown"}
-              </Text>
-              {music.release_date && (
-                <Text style={styles.resultText}>
-                  <Text style={styles.resultLabel}>Released: </Text>
-                  {music.release_date}
-                </Text>
-              )}
-            </View>
-          );
-        })}
-      </View>
-    );
+  const handleConfirmRecording = (setInfo) => {
+    setShowModal(false);
+    startRecording(setInfo);
+  };
+
+  const handleCancelRecording = () => {
+    setShowModal(false);
   };
 
   return (
@@ -76,7 +44,7 @@ const HomePage = () => {
 
         <TouchableOpacity
           style={[styles.button, isRecording && styles.buttonRecording]}
-          onPress={isRecording ? stopRecording : startRecording}
+          onPress={isRecording ? stopRecording : handleStartRecording}
           disabled={isIdentifying}
         >
           <Text style={styles.buttonText}>
@@ -84,27 +52,17 @@ const HomePage = () => {
           </Text>
         </TouchableOpacity>
 
-        {isRecording && (
-          <View style={styles.statusContainer}>
-            <View style={styles.recordingIndicator} />
-            <Text style={styles.statusText}>Recording...</Text>
-          </View>
-        )}
+        <RecordingStatus isRecording={isRecording} isIdentifying={isIdentifying} />
+        
+        <ErrorMessage error={error} />
 
-        {isIdentifying && (
-          <View style={styles.statusContainer}>
-            <ActivityIndicator size="small" color="#007AFF" />
-            <Text style={styles.statusText}>Identifying...</Text>
-          </View>
-        )}
+        <MatchResultsList matchResults={matchResults} />
 
-        {error && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        )}
-
-        {renderMatchResults()}
+        <SetNameModal
+          visible={showModal}
+          onConfirm={handleConfirmRecording}
+          onCancel={handleCancelRecording}
+        />
       </ScrollView>
     </SafeAreaView>
   );
@@ -146,90 +104,6 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 18,
     fontWeight: "600",
-  },
-  statusContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  recordingIndicator: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: "#FF3B30",
-    marginRight: 10,
-  },
-  statusText: {
-    fontSize: 16,
-    color: "#666",
-  },
-  errorContainer: {
-    backgroundColor: "#FFE5E5",
-    padding: 15,
-    borderRadius: 10,
-    marginTop: 20,
-    width: "100%",
-  },
-  errorText: {
-    color: "#FF3B30",
-    fontSize: 14,
-    textAlign: "center",
-  },
-  resultsSection: {
-    width: "100%",
-    marginTop: 20,
-  },
-  sectionTitle: {
-    fontSize: 22,
-    fontWeight: "bold",
-    marginBottom: 15,
-    color: "#333",
-    textAlign: "center",
-  },
-  resultContainer: {
-    backgroundColor: "white",
-    padding: 15,
-    borderRadius: 12,
-    marginBottom: 10,
-    width: "100%",
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  resultHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  resultHeaderRight: {
-    alignItems: "flex-end",
-  },
-  resultNumber: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: "#007AFF",
-  },
-  confidenceScore: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#34C759",
-    marginBottom: 2,
-  },
-  resultTime: {
-    fontSize: 12,
-    color: "#999",
-  },
-  resultText: {
-    fontSize: 15,
-    marginBottom: 5,
-    color: "#333",
-  },
-  resultLabel: {
-    fontWeight: "600",
-    color: "#666",
   },
 });
 

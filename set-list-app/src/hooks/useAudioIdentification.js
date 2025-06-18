@@ -30,23 +30,24 @@ const useAudioIdentification = () => {
     };
   }, [recording]);
 
-  const startRecording = async () => {
+  const startRecording = async (setInfo = {}) => {
     try {
       console.log('[useAudioIdentification] Starting recording process...');
       setError(null);
       setMatchResults([]); // Clear previous matches when starting new session
       
       // Create a new setlist for this recording session
+      let setlistId;
       try {
         const setlist = new Setlist({
-          name: `Recording Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+          name: setInfo.name || `Recording Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
           userId: userId,
-          venue: null,
+          venue: setInfo.venue || null,
           date: new Date(),
           description: 'Live music identification session',
         });
         
-        const setlistId = await FirebaseService.createSetlist(setlist.toFirestore());
+        setlistId = await FirebaseService.createSetlist(setlist.toFirestore());
         console.log('[useAudioIdentification] Created setlist with ID:', setlistId);
         setCurrentSetlistId(setlistId);
       } catch (err) {
