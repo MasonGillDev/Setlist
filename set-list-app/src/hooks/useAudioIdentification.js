@@ -18,6 +18,7 @@ const useAudioIdentification = () => {
   const [currentSetlistId, setCurrentSetlistId] = useState(null);
   const [isGlobalSet, setIsGlobalSet] = useState(false);
   const [numberOfUsers, setNumberOfUsers] = useState(1);
+  const [debugInfo, setDebugInfo] = useState({});
 
   const acrService = useRef(new ACRCloudService(ACRCloudConfig)).current;
   const recordingInterval = useRef(null);
@@ -41,24 +42,34 @@ const useAudioIdentification = () => {
   const startRecording = async (setInfo = {}) => {
     try {
       console.log("[useAudioIdentification] Starting recording process...");
+      console.log("[useAudioIdentification] Set info received:", JSON.stringify(setInfo, null, 2));
       setError(null);
       setMatchResults([]); // Clear previous matches when starting new session
 
       // Create a new setlist for this recording session
       let setlistId;
-      const globalSet = setInfo.isGlobal || false;
+      // Determine if this should be a global set
+      const globalSet = setInfo.isGlobal || !!setInfo.coordinates;
       setIsGlobalSet(globalSet);
       
       try {
-        if (globalSet && setInfo.globalSetId) {
+        // Verify Firebase is accessible
+        if (!db) {
+          console.error("[useAudioIdentification] Firebase database not initialized");
+          setError("Database connection error. Please restart the app.");
+          return;
+        }
+        
+        if (setInfo.globalSetId) {
           // Joining an existing global set
           setlistId = setInfo.globalSetId;
           console.log(
             "[useAudioIdentification] Joining global setlist with ID:",
             setlistId
           );
-        } else if (setInfo.coordinates) {
-          // Creating a new global set
+          setIsGlobalSet(true); // Ensure it's marked as global
+        } else if (globalSet) {
+          // Creating a new global set (has coordinates)
           const setlist = new Setlist({
             name:
               setInfo.name ||
@@ -78,7 +89,7 @@ const useAudioIdentification = () => {
             setlistId
           );
         } else {
-          // Creating a personal set
+          // Creating a personal set (no coordinates)
           const setlist = new Setlist({
             name:
               setInfo.name ||
@@ -137,25 +148,31 @@ const useAudioIdentification = () => {
       );
       const permission = await Audio.requestPermissionsAsync();
       console.log(
-        "[useAudioIdentification] Permission status:",
-        permission.status
+        "[useAudioIdentification] Permission response:",
+        JSON.stringify(permission, null, 2)
       );
 
       if (permission.status !== "granted") {
         console.error("[useAudioIdentification] Microphone permission denied");
-        setError("Permission to access microphone denied");
+        setError("Permission to access microphone denied. Please enable microphone access in your device settings.");
         return;
       }
 
       // Configure audio for optimal quality
       console.log("[useAudioIdentification] Configuring audio mode...");
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: true,
-        shouldDuckAndroid: false, // Don't lower other app's audio
-        playThroughEarpieceAndroid: false,
-      });
+      try {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: true,
+          shouldDuckAndroid: false, // Don't lower other app's audio
+          playThroughEarpieceAndroid: false,
+        });
+        console.log("[useAudioIdentification] Audio mode configured successfully");
+      } catch (audioModeError) {
+        console.error("[useAudioIdentification] Error setting audio mode:", audioModeError);
+        // Continue anyway as this might not be critical
+      }
 
       // Start recording with high quality settings
       console.log("[useAudioIdentification] Creating audio recording...");
@@ -185,21 +202,99 @@ const useAudioIdentification = () => {
         },
       };
 
-      const { recording } = await Audio.Recording.createAsync(recordingOptions);
-
-      console.log("[useAudioIdentification] Recording created successfully");
-      setRecording(recording);
+      let newRecording;
+      try {
+        console.log("[useAudioIdentification] About to create recording with options:", JSON.stringify(recordingOptions, null, 2));
+        const recordingResult = await Audio.Recording.createAsync(recordingOptions);
+        newRecording = recordingResult.recording;
+        console.log("[useAudioIdentification] Recording created successfully");
+        console.log("[useAudioIdentification] Recording object exists:", !!newRecording);
+      } catch (recordingError) {
+        console.error("[useAudioIdentification] Failed to create recording:", recordingError);
+        console.error("[useAudioIdentification] Recording error details:", {
+          name: recordingError.name,
+          message: recordingError.message,
+          code: recordingError.code,
+          stack: recordingError.stack
+        });
+        
+        // Clean up setlist if recording fails
+        if (setlistId && !globalSet) {
+          try {
+            await FirebaseService.deleteSetlist(setlistId);
+            console.log("[useAudioIdentification] Cleaned up failed setlist");
+          } catch (cleanupErr) {
+            console.error("[useAudioIdentification] Failed to cleanup setlist:", cleanupErr);
+          }
+        }
+        
+        setError(`Failed to start recording: ${recordingError.message}`);
+        setCurrentSetlistId(null);
+        return;
+      }
+      
+      // Get initial status
+      const initialStatus = await newRecording.getStatusAsync();
+      console.log("[useAudioIdentification] Initial recording status:", JSON.stringify(initialStatus, null, 2));
+      
+      if (!initialStatus.isRecording) {
+        console.error("[useAudioIdentification] Recording failed to start properly");
+        setError("Recording created but not active. Please check microphone permissions and try again.");
+        // Clean up the failed recording
+        try {
+          await newRecording.stopAndUnloadAsync();
+        } catch (cleanupError) {
+          console.error("[useAudioIdentification] Cleanup error:", cleanupError);
+        }
+        
+        // Clean up setlist
+        if (setlistId && !globalSet) {
+          try {
+            await FirebaseService.deleteSetlist(setlistId);
+          } catch (cleanupErr) {
+            console.error("[useAudioIdentification] Failed to cleanup setlist:", cleanupErr);
+          }
+        }
+        
+        setCurrentSetlistId(null);
+        return;
+      }
+      
+      setRecording(newRecording);
       setIsRecording(true);
 
       // Start chunked recording and identification
       console.log(
         "[useAudioIdentification] Starting chunked identification..."
       );
-      startChunkedIdentification(recording, setlistId, globalSet);
+      startChunkedIdentification(newRecording, setlistId, globalSet);
+      
+      console.log("[useAudioIdentification] Recording process fully initiated");
+      console.log("[useAudioIdentification] Current state - isRecording:", true);
+      console.log("[useAudioIdentification] Current state - currentSetlistId:", setlistId);
     } catch (err) {
       console.error("[useAudioIdentification] Failed to start recording:", err);
       console.error("[useAudioIdentification] Error stack:", err.stack);
-      setError("Failed to start recording: " + err.message);
+      console.error("[useAudioIdentification] Error details:", {
+        name: err.name,
+        message: err.message,
+        code: err.code,
+      });
+      
+      // Provide more specific error messages
+      let errorMessage = "Failed to start recording: ";
+      if (err.message.includes("permission")) {
+        errorMessage += "Microphone permission denied. Please check your settings.";
+      } else if (err.message.includes("Audio")) {
+        errorMessage += "Audio system error. Please restart the app and try again.";
+      } else if (err.message.includes("Firebase") || err.message.includes("firestore")) {
+        errorMessage += "Database connection error. Please check your internet connection.";
+      } else {
+        errorMessage += err.message;
+      }
+      
+      setError(errorMessage);
+      setIsRecording(false);
     }
   };
 
@@ -211,6 +306,9 @@ const useAudioIdentification = () => {
     console.log(
       "[useAudioIdentification] Starting continuous recording and identification..."
     );
+    console.log("[useAudioIdentification] Initial recording object:", initialRecording);
+    console.log("[useAudioIdentification] Setlist ID:", setlistId);
+    console.log("[useAudioIdentification] Is global set:", isGlobalSet);
 
     const recordAndIdentify = async () => {
       while (shouldContinue && recordingInterval.current) {
@@ -395,13 +493,25 @@ const useAudioIdentification = () => {
                 "[useAudioIdentification] New song added to list, continuing to record..."
               );
 
-              // Add track to Firebase setlist
+              // Add track to Firebase setlist and get the ID
               if (setlistId) {
                 console.log(
                   "[useAudioIdentification] Adding track to Firebase setlist:",
                   setlistId
                 );
-                addTrackToFirebase(result, setlistId, isGlobalSet);
+                // Add track to Firebase and update with the returned ID
+                addTrackToFirebase(result, setlistId, isGlobalSet).then((trackId) => {
+                  if (trackId) {
+                    // Update the match result with the Firebase track ID
+                    setMatchResults((currentResults) => {
+                      return currentResults.map((match) => 
+                        match.id === newMatch.id 
+                          ? { ...match, firebaseTrackId: trackId }
+                          : match
+                      );
+                    });
+                  }
+                });
               } else {
                 console.warn(
                   "[useAudioIdentification] No setlistId available for adding track"
@@ -529,6 +639,7 @@ const useAudioIdentification = () => {
       setIsGlobalSet(false);
       setCurrentSetlistId(null);
       setNumberOfUsers(1);
+      setMatchResults([]); // Clear the identified songs
       
       console.log("[useAudioIdentification] Recording process completed");
     } catch (err) {
@@ -544,13 +655,21 @@ const useAudioIdentification = () => {
   // Helper function to add track to Firebase
   const addTrackToFirebase = async (matchData, setlistId, isGlobalSet = false) => {
     try {
+      console.log("[useAudioIdentification] addTrackToFirebase called with:", {
+        setlistId,
+        isGlobalSet,
+        userId
+      });
+      
       const track = Track.fromACRCloudMatch(matchData, userId);
       const trackData = track.toFirestore();
 
       let trackId;
       if (isGlobalSet) {
+        console.log("[useAudioIdentification] Adding track to GLOBAL set");
         trackId = await FirebaseService.addTrackToGlobalSet(setlistId, trackData);
       } else {
+        console.log("[useAudioIdentification] Adding track to PERSONAL set");
         trackId = await FirebaseService.addTrack(setlistId, trackData);
       }
       
@@ -558,11 +677,14 @@ const useAudioIdentification = () => {
         "[useAudioIdentification] Track added to Firebase with ID:",
         trackId
       );
+      
+      return trackId;
     } catch (err) {
       console.error(
         "[useAudioIdentification] Failed to add track to Firebase:",
         err
       );
+      return null;
     }
   };
 
@@ -619,6 +741,7 @@ const useAudioIdentification = () => {
     currentSetlistId,
     isGlobalSet,
     numberOfUsers,
+    debugInfo,
 
     // Actions
     startRecording,

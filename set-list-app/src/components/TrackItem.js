@@ -16,6 +16,9 @@ const TrackItem = ({
   const [dislikes, setDislikes] = useState(track.dislikes || 0);
   const [userVote, setUserVote] = useState(track.userVote || null);
   const [isUpdating, setIsUpdating] = useState(false);
+  
+  // Voting is only enabled if we have both setlistId and track.id
+  const canVote = !!(setlistId && track.id && track.id !== track.timestamp);
 
   // Generate a simple user ID for demo purposes
   if (!global.userId) {
@@ -32,6 +35,12 @@ const TrackItem = ({
 
   const handleVote = async (voteType) => {
     if (isUpdating) return;
+    
+    // Check if we have necessary IDs for voting
+    if (!setlistId || !track.id) {
+      console.log('[TrackItem] Cannot vote - missing setlistId or track.id');
+      return;
+    }
     
     setIsUpdating(true);
     
@@ -71,6 +80,16 @@ const TrackItem = ({
 
       // Update Firebase
       if (setlistId && track.id) {
+        console.log('[TrackItem] Updating vote in Firebase:', {
+          setlistId,
+          trackId: track.id,
+          userId,
+          newUserVote,
+          newLikes,
+          newDislikes,
+          isGlobalSet
+        });
+        
         await FirebaseService.updateTrackVote(
           setlistId, 
           track.id, 
@@ -80,6 +99,11 @@ const TrackItem = ({
           newDislikes,
           isGlobalSet
         );
+      } else {
+        console.log('[TrackItem] Cannot update vote - missing setlistId or track.id:', {
+          setlistId,
+          trackId: track.id
+        });
       }
     } catch (error) {
       console.error('Error updating vote:', error);
@@ -121,38 +145,42 @@ const TrackItem = ({
           <TouchableOpacity 
             style={[
               styles.voteButton,
-              userVote === 'like' && styles.voteButtonActive
+              userVote === 'like' && styles.voteButtonActive,
+              !canVote && styles.voteButtonDisabled
             ]}
             onPress={() => handleVote('like')}
-            disabled={isUpdating}
+            disabled={isUpdating || !canVote}
           >
             <Ionicons 
               name={userVote === 'like' ? "thumbs-up" : "thumbs-up-outline"} 
               size={20} 
-              color={userVote === 'like' ? Colors.semantic.success : Colors.text.secondary}
+              color={!canVote ? Colors.neutral.gray400 : (userVote === 'like' ? Colors.semantic.success : Colors.text.secondary)}
             />
             <Text style={[
               styles.voteCount,
-              userVote === 'like' && styles.voteCountActive
+              userVote === 'like' && styles.voteCountActive,
+              !canVote && styles.voteCountDisabled
             ]}>{likes}</Text>
           </TouchableOpacity>
           
           <TouchableOpacity 
             style={[
               styles.voteButton,
-              userVote === 'dislike' && styles.voteButtonActive
+              userVote === 'dislike' && styles.voteButtonActive,
+              !canVote && styles.voteButtonDisabled
             ]}
             onPress={() => handleVote('dislike')}
-            disabled={isUpdating}
+            disabled={isUpdating || !canVote}
           >
             <Ionicons 
               name={userVote === 'dislike' ? "thumbs-down" : "thumbs-down-outline"} 
               size={20} 
-              color={userVote === 'dislike' ? Colors.semantic.error : Colors.text.secondary}
+              color={!canVote ? Colors.neutral.gray400 : (userVote === 'dislike' ? Colors.semantic.error : Colors.text.secondary)}
             />
             <Text style={[
               styles.voteCount,
-              userVote === 'dislike' && styles.voteCountActive
+              userVote === 'dislike' && styles.voteCountActive,
+              !canVote && styles.voteCountDisabled
             ]}>{dislikes}</Text>
           </TouchableOpacity>
         </View>
@@ -242,6 +270,13 @@ const styles = StyleSheet.create({
   voteCountActive: {
     color: Colors.text.primary,
     fontWeight: '600',
+  },
+  voteButtonDisabled: {
+    backgroundColor: Colors.neutral.gray50,
+    opacity: 0.6,
+  },
+  voteCountDisabled: {
+    color: Colors.neutral.gray400,
   },
 });
 

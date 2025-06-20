@@ -17,7 +17,7 @@ const MatchResultsList = ({ matchResults, setlistId = null, isGlobalSet = false 
 
         // Create a track object compatible with TrackItem
         const track = {
-          id: match.id,
+          id: match.firebaseTrackId || match.id, // Use Firebase ID if available
           title: music.title,
           artist: music.artists?.map((a) => a.name).join(", "),
           artists: music.artists,

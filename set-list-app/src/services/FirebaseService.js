@@ -187,6 +187,17 @@ class FirebaseService {
    */
   async addTrack(setlistId, trackData) {
     try {
+      console.log('[FirebaseService] Adding track to setlist:', setlistId);
+      
+      // First check if the setlist exists
+      const setlistRef = doc(this.db, 'setlists', setlistId);
+      const setlistDoc = await getDoc(setlistRef);
+      
+      if (!setlistDoc.exists()) {
+        console.error('[FirebaseService] Setlist does not exist:', setlistId);
+        throw new Error(`Setlist ${setlistId} not found`);
+      }
+      
       // Add the track to the subcollection
       const trackRef = await addDoc(
         collection(this.db, 'setlists', setlistId, 'tracks'),
@@ -198,8 +209,6 @@ class FirebaseService {
       );
       
       // Update the track count in the setlist
-      const setlistRef = doc(this.db, 'setlists', setlistId);
-      const setlistDoc = await getDoc(setlistRef);
       const currentCount = setlistDoc.data()?.trackCount || 0;
       await updateDoc(setlistRef, {
         trackCount: currentCount + 1,
@@ -643,27 +652,56 @@ class FirebaseService {
    */
   async updateTrackVote(setlistId, trackId, userId, voteType, likes, dislikes, isGlobalSet = false) {
     try {
+      console.log('[FirebaseService] updateTrackVote called with:', {
+        setlistId,
+        trackId,
+        userId,
+        voteType,
+        likes,
+        dislikes,
+        isGlobalSet
+      });
+      
       const collection = isGlobalSet ? 'globalSets' : 'setlists';
       const trackRef = doc(this.db, collection, setlistId, 'tracks', trackId);
+      
+      // First, check if the track document exists
+      const trackDoc = await getDoc(trackRef);
+      
+      if (!trackDoc.exists()) {
+        console.error('[FirebaseService] Track document does not exist:', trackId);
+        throw new Error(`Track ${trackId} not found in ${collection}/${setlistId}`);
+      }
+      
+      const currentData = trackDoc.data() || {};
+      const currentUserVotes = currentData.userVotes || {};
+      
+      // Update the userVotes object
+      if (voteType === null) {
+        delete currentUserVotes[userId];
+      } else {
+        currentUserVotes[userId] = voteType;
+      }
       
       const updates = {
         likes: likes,
         dislikes: dislikes,
-        [`userVotes.${userId}`]: voteType,
+        userVotes: currentUserVotes,
         updatedAt: serverTimestamp(),
       };
       
-      if (voteType === null) {
-        // Remove the user's vote
-        delete updates[`userVotes.${userId}`];
-        updates[`userVotes.${userId}`] = null;
-      }
+      console.log('[FirebaseService] Updating track with:', updates);
       
       await updateDoc(trackRef, updates);
       
-      console.log('[FirebaseService] Track vote updated:', trackId);
+      console.log('[FirebaseService] Track vote updated successfully:', trackId);
     } catch (error) {
       console.error('[FirebaseService] Error updating track vote:', error);
+      console.error('[FirebaseService] Error details:', {
+        name: error.name,
+        message: error.message,
+        code: error.code
+      });
       throw error;
     }
   }

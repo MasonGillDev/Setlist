@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  Alert,
 } from "react-native";
 import useAudioIdentification from "../hooks/useAudioIdentification";
 import SetNameModal from "../components/SetNameModal";
@@ -34,9 +35,23 @@ const HomePage = () => {
     setShowModal(true);
   };
 
-  const handleConfirmRecording = (setInfo) => {
+  const handleConfirmRecording = async (setInfo) => {
+    console.log('[HomePage] Confirm recording with info:', setInfo);
     setShowModal(false);
-    startRecording(setInfo);
+    
+    try {
+      console.log('[HomePage] Calling startRecording...');
+      await startRecording(setInfo);
+      console.log('[HomePage] Recording started successfully');
+      console.log('[HomePage] Current recording state:', isRecording);
+    } catch (error) {
+      console.error('[HomePage] Error starting recording:', error);
+      Alert.alert(
+        'Recording Error',
+        error.message || 'Failed to start recording. Please try again.',
+        [{ text: 'OK' }]
+      );
+    }
   };
 
   const handleCancelRecording = () => {
@@ -47,15 +62,29 @@ const HomePage = () => {
     setShowJoinModal(true);
   };
 
-  const handleConfirmJoin = (globalSet) => {
+  const handleConfirmJoin = async (globalSet) => {
+    console.log('[HomePage] Joining global set:', globalSet);
     setShowJoinModal(false);
-    // Start recording with the global set data
-    startRecording({
-      name: globalSet.name,
-      venue: globalSet.venue,
-      globalSetId: globalSet.id,
-      isGlobal: true,
-    });
+    
+    try {
+      console.log('[HomePage] Calling startRecording for global set...');
+      // Start recording with the global set data
+      await startRecording({
+        name: globalSet.name,
+        venue: globalSet.venue,
+        globalSetId: globalSet.id,
+        isGlobal: true,
+      });
+      console.log('[HomePage] Joined global set successfully');
+      console.log('[HomePage] Current recording state:', isRecording);
+    } catch (error) {
+      console.error('[HomePage] Error joining global set:', error);
+      Alert.alert(
+        'Join Set Error',
+        error.message || 'Failed to join set. Please try again.',
+        [{ text: 'OK' }]
+      );
+    }
   };
 
   const handleCancelJoin = () => {

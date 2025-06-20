@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Switch,
 } from 'react-native';
 import * as Location from 'expo-location';
 import { Colors } from '../constants/colors';
@@ -18,17 +19,24 @@ const SetNameModal = ({ visible, onConfirm, onCancel }) => {
   const [venue, setVenue] = useState('');
   const [gettingLocation, setGettingLocation] = useState(false);
   const [coordinates, setCoordinates] = useState(null);
+  const [isGlobalSet, setIsGlobalSet] = useState(false);
 
   useEffect(() => {
-    if (visible) {
+    if (visible && isGlobalSet) {
       getLocation();
     }
-  }, [visible]);
+  }, [visible, isGlobalSet]);
 
   const getLocation = async () => {
     try {
       setGettingLocation(true);
-      const { status } = await Location.getForegroundPermissionsAsync();
+      let { status } = await Location.getForegroundPermissionsAsync();
+      
+      if (status !== 'granted') {
+        // Request permission if not granted
+        const permissionResult = await Location.requestForegroundPermissionsAsync();
+        status = permissionResult.status;
+      }
       
       if (status === 'granted') {
         const location = await Location.getCurrentPositionAsync({
@@ -38,9 +46,15 @@ const SetNameModal = ({ visible, onConfirm, onCancel }) => {
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
         });
+      } else {
+        // If permission denied, turn off global set
+        setIsGlobalSet(false);
+        alert('Location permission is required for global sets. Others won\'t be able to find your set without location.');
       }
     } catch (error) {
       console.error('Error getting location:', error);
+      setIsGlobalSet(false);
+      alert('Could not get location. Global set requires location access.');
     } finally {
       setGettingLocation(false);
     }
@@ -51,17 +65,20 @@ const SetNameModal = ({ visible, onConfirm, onCancel }) => {
     onConfirm({ 
       name, 
       venue: venue.trim() || null,
-      coordinates: coordinates,
+      coordinates: isGlobalSet ? coordinates : null,
+      isGlobal: isGlobalSet,
     });
     setSetName('');
     setVenue('');
     setCoordinates(null);
+    setIsGlobalSet(false);
   };
 
   const handleCancel = () => {
     setSetName('');
     setVenue('');
     setCoordinates(null);
+    setIsGlobalSet(false);
     onCancel();
   };
 
@@ -101,6 +118,24 @@ const SetNameModal = ({ visible, onConfirm, onCancel }) => {
               returnKeyType="done"
               onSubmitEditing={handleConfirm}
             />
+          </View>
+
+          <View style={styles.toggleContainer}>
+            <View style={styles.toggleRow}>
+              <Text style={styles.toggleLabel}>Make this a Global Set</Text>
+              <Switch
+                value={isGlobalSet}
+                onValueChange={setIsGlobalSet}
+                trackColor={{ false: Colors.neutral.gray300, true: Colors.primary.teal }}
+                thumbColor={isGlobalSet ? Colors.accent.orange : Colors.neutral.gray100}
+                ios_backgroundColor={Colors.neutral.gray300}
+              />
+            </View>
+            <Text style={styles.toggleDescription}>
+              {isGlobalSet 
+                ? "Others nearby can join and contribute to this set" 
+                : "This will be a personal set only you can see"}
+            </Text>
           </View>
 
           {gettingLocation && (
@@ -216,6 +251,28 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontSize: 14,
     color: Colors.text.secondary,
+  },
+  toggleContainer: {
+    marginBottom: 20,
+    padding: 15,
+    backgroundColor: Colors.neutral.gray50,
+    borderRadius: 10,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  toggleLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text.primary,
+  },
+  toggleDescription: {
+    fontSize: 13,
+    color: Colors.text.secondary,
+    lineHeight: 18,
   },
 });
 
