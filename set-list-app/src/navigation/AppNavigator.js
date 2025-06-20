@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import HomePage from '../screens/HomePage';
 import SetsPage from '../screens/SetsPage';
+import { Colors } from '../constants/colors';
 
 const Tab = createBottomTabNavigator();
 
@@ -24,17 +25,21 @@ const AppNavigator = () => {
 
             return <Ionicons name={iconName} size={size} color={color} />;
           },
-          tabBarActiveTintColor: '#007AFF',
-          tabBarInactiveTintColor: 'gray',
+          tabBarActiveTintColor: Colors.primary.teal,
+          tabBarInactiveTintColor: Colors.text.secondary,
           headerShown: false,
           tabBarStyle: {
             paddingBottom: 5,
             paddingTop: 5,
             height: 60,
+            backgroundColor: Colors.background.secondary,
+            borderTopColor: Colors.neutral.gray200,
+            borderTopWidth: 1,
           },
           tabBarLabelStyle: {
             fontSize: 12,
             fontWeight: '600',
+            letterSpacing: 0.3,
           },
         })}
       >

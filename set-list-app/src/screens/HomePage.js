@@ -8,9 +8,11 @@ import {
 } from "react-native";
 import useAudioIdentification from "../hooks/useAudioIdentification";
 import SetNameModal from "../components/SetNameModal";
+import JoinSetModal from "../components/JoinSetModal";
 import MatchResultsList from "../components/MatchResultsList";
 import RecordingStatus from "../components/RecordingStatus";
 import ErrorMessage from "../components/ErrorMessage";
+import { Colors } from "../constants/colors";
 
 const HomePage = () => {
   const {
@@ -18,11 +20,15 @@ const HomePage = () => {
     isIdentifying,
     matchResults,
     error,
+    isGlobalSet,
+    numberOfUsers,
+    currentSetlistId,
     startRecording,
     stopRecording,
   } = useAudioIdentification();
 
   const [showModal, setShowModal] = useState(false);
+  const [showJoinModal, setShowJoinModal] = useState(false);
 
   const handleStartRecording = () => {
     setShowModal(true);
@@ -35,6 +41,25 @@ const HomePage = () => {
 
   const handleCancelRecording = () => {
     setShowModal(false);
+  };
+
+  const handleJoinSet = () => {
+    setShowJoinModal(true);
+  };
+
+  const handleConfirmJoin = (globalSet) => {
+    setShowJoinModal(false);
+    // Start recording with the global set data
+    startRecording({
+      name: globalSet.name,
+      venue: globalSet.venue,
+      globalSetId: globalSet.id,
+      isGlobal: true,
+    });
+  };
+
+  const handleCancelJoin = () => {
+    setShowJoinModal(false);
   };
 
   return (
@@ -52,16 +77,40 @@ const HomePage = () => {
           </Text>
         </TouchableOpacity>
 
-        <RecordingStatus isRecording={isRecording} isIdentifying={isIdentifying} />
+        {!isRecording && (
+          <TouchableOpacity
+            style={[styles.button, styles.buttonJoin]}
+            onPress={handleJoinSet}
+          >
+            <Text style={styles.buttonText}>Join Set</Text>
+          </TouchableOpacity>
+        )}
+
+        <RecordingStatus 
+          isRecording={isRecording} 
+          isIdentifying={isIdentifying}
+          isGlobalSet={isGlobalSet}
+          numberOfUsers={numberOfUsers}
+        />
         
         <ErrorMessage error={error} />
 
-        <MatchResultsList matchResults={matchResults} />
+        <MatchResultsList 
+          matchResults={matchResults} 
+          setlistId={currentSetlistId}
+          isGlobalSet={isGlobalSet}
+        />
 
         <SetNameModal
           visible={showModal}
           onConfirm={handleConfirmRecording}
           onCancel={handleCancelRecording}
+        />
+
+        <JoinSetModal
+          visible={showJoinModal}
+          onJoin={handleConfirmJoin}
+          onCancel={handleCancelJoin}
         />
       </ScrollView>
     </SafeAreaView>
@@ -71,7 +120,7 @@ const HomePage = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f5f5",
+    backgroundColor: Colors.background.primary,
   },
   scrollContainer: {
     flexGrow: 1,
@@ -79,31 +128,37 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   title: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: "bold",
     marginBottom: 40,
     marginTop: 20,
-    color: "#333",
+    color: Colors.primary.teal,
+    textAlign: "center",
   },
   button: {
-    backgroundColor: "#007AFF",
-    paddingHorizontal: 40,
+    backgroundColor: Colors.primary.teal,
+    paddingHorizontal: 50,
     paddingVertical: 20,
     borderRadius: 30,
     marginBottom: 30,
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    elevation: 5,
+    shadowColor: Colors.primary.tealDark,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
   },
   buttonRecording: {
-    backgroundColor: "#FF3B30",
+    backgroundColor: Colors.accent.orange,
+  },
+  buttonJoin: {
+    backgroundColor: Colors.primary.tealDark,
+    marginTop: -15,
   },
   buttonText: {
-    color: "white",
+    color: Colors.text.inverse,
     fontSize: 18,
-    fontWeight: "600",
+    fontWeight: "700",
+    letterSpacing: 0.5,
   },
 });
 

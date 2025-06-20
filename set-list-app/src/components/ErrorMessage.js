@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { Colors } from '../constants/colors';
 
 const ErrorMessage = ({ error }) => {
   if (!error) return null;
@@ -13,14 +14,14 @@ const ErrorMessage = ({ error }) => {
 
 const styles = StyleSheet.create({
   errorContainer: {
-    backgroundColor: "#FFE5E5",
+    backgroundColor: Colors.semantic.error + '20',
     padding: 15,
     borderRadius: 10,
     marginTop: 20,
     width: "100%",
   },
   errorText: {
-    color: "#FF3B30",
+    color: Colors.semantic.error,
     fontSize: 14,
     textAlign: "center",
   },

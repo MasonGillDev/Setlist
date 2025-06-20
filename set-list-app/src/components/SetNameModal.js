@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal,
   View,
@@ -8,22 +8,60 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
+import * as Location from 'expo-location';
+import { Colors } from '../constants/colors';
 
 const SetNameModal = ({ visible, onConfirm, onCancel }) => {
   const [setName, setSetName] = useState('');
   const [venue, setVenue] = useState('');
+  const [gettingLocation, setGettingLocation] = useState(false);
+  const [coordinates, setCoordinates] = useState(null);
+
+  useEffect(() => {
+    if (visible) {
+      getLocation();
+    }
+  }, [visible]);
+
+  const getLocation = async () => {
+    try {
+      setGettingLocation(true);
+      const { status } = await Location.getForegroundPermissionsAsync();
+      
+      if (status === 'granted') {
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+        setCoordinates({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        });
+      }
+    } catch (error) {
+      console.error('Error getting location:', error);
+    } finally {
+      setGettingLocation(false);
+    }
+  };
 
   const handleConfirm = () => {
     const name = setName.trim() || `Recording Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`;
-    onConfirm({ name, venue: venue.trim() || null });
+    onConfirm({ 
+      name, 
+      venue: venue.trim() || null,
+      coordinates: coordinates,
+    });
     setSetName('');
     setVenue('');
+    setCoordinates(null);
   };
 
   const handleCancel = () => {
     setSetName('');
     setVenue('');
+    setCoordinates(null);
     onCancel();
   };
 
@@ -65,6 +103,13 @@ const SetNameModal = ({ visible, onConfirm, onCancel }) => {
             />
           </View>
 
+          {gettingLocation && (
+            <View style={styles.locationStatus}>
+              <ActivityIndicator size="small" color={Colors.primary.teal} />
+              <Text style={styles.locationText}>Getting location...</Text>
+            </View>
+          )}
+
           <View style={styles.buttonContainer}>
             <TouchableOpacity
               style={[styles.button, styles.cancelButton]}
@@ -94,12 +139,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   modalContent: {
-    backgroundColor: 'white',
+    backgroundColor: Colors.background.secondary,
     borderRadius: 20,
     padding: 20,
     width: '90%',
     maxWidth: 400,
-    shadowColor: '#000',
+    shadowColor: Colors.neutral.black,
     shadowOffset: {
       width: 0,
       height: 2,
@@ -113,7 +158,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
     marginBottom: 20,
-    color: '#333',
+    color: Colors.text.primary,
   },
   inputContainer: {
     marginBottom: 20,
@@ -122,15 +167,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 8,
-    color: '#333',
+    color: Colors.text.primary,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: Colors.neutral.gray300,
     borderRadius: 10,
     padding: 12,
     fontSize: 16,
-    backgroundColor: '#f8f8f8',
+    backgroundColor: Colors.background.tertiary,
   },
   buttonContainer: {
     flexDirection: 'row',
@@ -144,22 +189,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cancelButton: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: Colors.neutral.gray100,
     marginRight: 10,
   },
   confirmButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: Colors.accent.orange,
     marginLeft: 10,
   },
   cancelButtonText: {
-    color: '#666',
+    color: Colors.text.secondary,
     fontSize: 16,
     fontWeight: '600',
   },
   confirmButtonText: {
-    color: 'white',
+    color: Colors.text.inverse,
     fontSize: 16,
     fontWeight: '600',
+  },
+  locationStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 15,
+  },
+  locationText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: Colors.text.secondary,
   },
 });
 
