@@ -3,6 +3,7 @@ import * as FileSystem from "expo-file-system";
 import { useEffect, useRef, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../config/firebase";
+import { useAuth } from "./useAuth";
 import { ACRCloudConfig } from "../config/acrcloud";
 import { Setlist } from "../models/setlist";
 import { Track } from "../models/track";
@@ -22,7 +23,8 @@ const useAudioIdentification = () => {
 
   const acrService = useRef(new ACRCloudService(ACRCloudConfig)).current;
   const recordingInterval = useRef(null);
-  const userId = useRef("user_" + Date.now()).current; // Temporary user ID
+  const { user } = useAuth();
+  const userId = user?.uid || "guest";
   const unsubscribeRef = useRef(null);
 
   useEffect(() => {
