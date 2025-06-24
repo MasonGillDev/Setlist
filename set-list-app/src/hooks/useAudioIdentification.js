@@ -469,7 +469,7 @@ const useAudioIdentification = () => {
         );
 
         const music = result.metadata.music?.[0];
-        if (music && music.score >= 40) {
+        if (music && music.score >= 34) {
           // Use functional update to check for duplicates with current state
           setMatchResults((prev) => {
             // Check if this song is already in the list
@@ -557,9 +557,9 @@ const useAudioIdentification = () => {
               }
             }
           });
-        } else if (music && music.score < 40) {
+        } else if (music && music.score < 34) {
           console.log(
-            `[useAudioIdentification] Match found but confidence too low: ${music.score}% (minimum: 40%)`
+            `[useAudioIdentification] Match found but confidence too low: ${music.score}% (minimum: 34%)`
           );
         }
       } else {
