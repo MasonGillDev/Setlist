@@ -17,6 +17,7 @@ import * as Haptics from 'expo-haptics';
 import FirebaseService from '../services/FirebaseService';
 import { Colors } from '../constants/colors';
 import TrackItem from '../components/TrackItem';
+import { useAuth } from '../hooks/useAuth';
 
 const SetsPage = () => {
   const [setlists, setSetlists] = useState([]);
@@ -28,8 +29,8 @@ const SetsPage = () => {
   // Animation values for each setlist
   const animatedValues = useRef({});
   
-  // Temporary user ID - same as in useAudioIdentification
-  const userId = 'user_' + Date.now();
+  const { user, logout } = useAuth();
+  const userId = user?.uid || 'guest';
 
   useEffect(() => {
     loadSetlists();
@@ -320,7 +321,12 @@ const SetsPage = () => {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContainer}>
-        <Text style={styles.title}>My Sets</Text>
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>My Sets</Text>
+          <TouchableOpacity onPress={logout} style={styles.signOutButton}>
+            <Ionicons name="log-out-outline" size={24} color={Colors.text.primary} />
+          </TouchableOpacity>
+        </View>
         
         {error && (
           <View style={styles.errorContainer}>
@@ -413,6 +419,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.text.secondary,
     textAlign: 'center',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    marginTop: 20,
+  },
+  signOutButton: {
+    padding: 6,
   },
   setlistsContainer: {
     width: '100%',
