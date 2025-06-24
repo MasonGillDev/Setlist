@@ -1,4 +1,4 @@
-import { Audio } from "expo-av";
+import { Audio } from "expo-audio";
 import * as FileSystem from "expo-file-system";
 import { useEffect, useRef, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
