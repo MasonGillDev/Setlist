@@ -1,4 +1,4 @@
-import { Audio } from 'expo-av';
+import { Audio } from 'expo-audio';
 import { Platform } from 'react-native';
 
 export const checkAudioPermissions = async () => {
